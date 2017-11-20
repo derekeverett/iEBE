@@ -10,7 +10,8 @@
 ##			distclean	remove all objectsfiles and binaries
 ##  
 
-CC := $(shell ../../crank/configure_compiler_C++.sh)
+#CC := $(shell ../../crank/configure_compiler_C++.sh)
+CC = g++
 CFLAGS= -O3 -Wall
 
 RM		=	rm -f
