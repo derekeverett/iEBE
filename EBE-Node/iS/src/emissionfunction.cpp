@@ -209,7 +209,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
           double dE_ptdptdphidy_tmp = 0.0;
           //FO files for 3+1D will be very long
           //make sure that acc kernels automatically unrolls these loops
-	  #pragma omp parallel for reduction(+:dN_ptdptdphidy_tmp)
+	  #pragma omp for reduction(+:dN_ptdptdphidy_tmp)
           for (long l=0; l<FO_length; l++)
           {
               surf = &FOsurf_ptr[l];
