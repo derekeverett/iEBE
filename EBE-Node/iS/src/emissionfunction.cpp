@@ -191,9 +191,11 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
   double progress_total = pT_tab_length*phi_tab_length;
   if (AMOUNT_OF_OUTPUT>0) print_progressbar(-1);
 
+  //call acc kernels here
+  //should copy over all necessary arrays using acc data copy()
   for (int i=0; i<pT_tab_length; i++)
   {
-      double pT = pT_tab->get(1,i+1); 
+      double pT = pT_tab->get(1,i+1);
       double mT = sqrt(mass*mass + pT*pT);
 
       for (int j=0; j<phi_tab_length; j++)
@@ -203,11 +205,12 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
 
           double dN_ptdptdphidy_tmp = 0.0;
           double dE_ptdptdphidy_tmp = 0.0;
-
+          //FO files for 3+1D will be very long
+          //make sure that acc kernels automatically unrolls these loops
           for (long l=0; l<FO_length; l++)
           {
               surf = &FOsurf_ptr[l];
-
+              //grabbing info from surf , make sure it is copied to GPU
               double Tdec = surf->Tdec;
               double Pdec = surf->Pdec;
               double Edec = surf->Edec;
@@ -237,7 +240,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                       bulkPi = surf->bulkPi;
                   else
                       bulkPi = surf->bulkPi/hbarC;   // unit in fm^-4
-                  getbulkvisCoefficients(Tdec, bulkvisCoefficients);
+                  getbulkvisCoefficients(Tdec, bulkvisCoefficients); //does this function need to run on device?
               }
 
               for (int k=0; k<eta_tab_length; k++)
@@ -250,10 +253,10 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                   //thermal equilibrium distributions
                   double pdotu = pt*gammaT - px*ux - py*uy;
                   double expon = (pdotu - mu - baryon*muB) / Tdec;
-                  double f0 = 1./(exp(expon)+sign);   
+                  double f0 = 1./(exp(expon)+sign);
 
-                  // Must adjust this to be correct for the p*del \tau term.  
-                  // The plus sign is due to the fact that the DA# variables 
+                  // Must adjust this to be correct for the p*del \tau term.
+                  // The plus sign is due to the fact that the DA# variables
                   // are for the covariant surface integration
                   double pdsigma = pt*da0 + px*da1 + py*da2;
 
@@ -262,8 +265,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                   if(INCLUDE_DELTAF)
                   {
                       double Wfactor = (
-                          pt*pt*pi00 - 2.0*pt*px*pi01 - 2.0*pt*py*pi02 
-                          + px*px*pi11 + 2.0*px*py*pi12 + py*py*pi22 
+                          pt*pt*pi00 - 2.0*pt*px*pi01 - 2.0*pt*py*pi02
+                          + px*px*pi11 + 2.0*px*py*pi12 + py*py*pi22
                           + pz*pz*pi33);
                       delta_f_shear = ((1 - F0_IS_NOT_SMALL*sign*f0)
                                        *Wfactor*deltaf_prefactor);
@@ -274,8 +277,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                       if(bulk_deltaf_kind == 0)
                           delta_f_bulk = (
                               - (1. - F0_IS_NOT_SMALL*sign*f0)*bulkPi
-                                *(bulkvisCoefficients[0]*mass*mass 
-                                  + bulkvisCoefficients[1]*pdotu 
+                                *(bulkvisCoefficients[0]*mass*mass
+                                  + bulkvisCoefficients[1]*pdotu
                                   + bulkvisCoefficients[2]*pdotu*pdotu));
                       else if (bulk_deltaf_kind == 1)
                       {
@@ -284,7 +287,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                           double mass_over_T = mass/Tdec;
                           delta_f_bulk = (
                               -1.0*(1.-sign*f0)/E_over_T*bulkvisCoefficients[0]
-                              *(mass_over_T*mass_over_T/3. 
+                              *(mass_over_T*mass_over_T/3.
                                 - bulkvisCoefficients[1]*E_over_T*E_over_T)
                               *bulkPi);
                       }
@@ -292,7 +295,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                       {
                           double E_over_T = pdotu/Tdec;
                           delta_f_bulk = (-1.*(1.-sign*f0)
-                                          *(-bulkvisCoefficients[0] 
+                                          *(-bulkvisCoefficients[0]
                                             + bulkvisCoefficients[1]*E_over_T)
                                           *bulkPi);
                       }
@@ -300,7 +303,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                       {
                           double E_over_T = pdotu/Tdec;
                           delta_f_bulk = (-1.0*(1.-sign*f0)/sqrt(E_over_T)
-                                          *(-bulkvisCoefficients[0] 
+                                          *(-bulkvisCoefficients[0]
                                             + bulkvisCoefficients[1]*E_over_T)
                                           *bulkPi);
                       }
@@ -308,13 +311,13 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
                       {
                           double E_over_T = pdotu/Tdec;
                           delta_f_bulk = (-1.0*(1.-sign*f0)
-                                          *(bulkvisCoefficients[0] 
+                                          *(bulkvisCoefficients[0]
                                             - bulkvisCoefficients[1]/E_over_T)
                                           *bulkPi);
                       }
                   }
 
-                  double ratio = min(1., 
+                  double ratio = min(1.,
                                      fabs(1./(delta_f_shear + delta_f_bulk)));
                   double result;
                   result = (prefactor*degen*pdsigma*tau*f0
@@ -715,7 +718,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
             // prepare a huge array to store calculated dN_ptdptdphidy
             Table* dNs[Nparticles];
             for (int n=0; n<Nparticles; n++) dNs[n]=NULL;
-            
+
             Table* dEs[Nparticles];
             for (int n=0; n<Nparticles; n++) dEs[n]=NULL;
 
@@ -736,7 +739,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
                 else
                 {
                     cout << " -- Calculating dN_ptdptdphidy... " << endl;
-                    calculate_dN_ptdptdphidy(particle_idx);
+                    calculate_dN_ptdptdphidy(particle_idx); //parallelize this function
                 }
 
                 // Store calculated table
@@ -748,15 +751,15 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
                 remove(buffer_diff);
                 sprintf(buffer_inte, flow_integrated_filename.c_str(), monval);
                 remove(buffer_inte);
-                calculate_flows(to_order, buffer_diff, buffer_inte);
-                
+                calculate_flows(to_order, buffer_diff, buffer_inte); //parallelize this function
+
                 if(CALCULATEDED3P == 1)
                 {
                    sprintf(buffer_diff, energyflow_differential_filename.c_str(), monval);
                    remove(buffer_diff);
                    sprintf(buffer_inte, energyflow_integrated_filename.c_str(), monval);
                    remove(buffer_inte);
-                   calculate_Energyflows(to_order, buffer_diff, buffer_inte);
+                   calculate_Energyflows(to_order, buffer_diff, buffer_inte); //parallelize this function
                 }
             }
 
@@ -851,27 +854,27 @@ void EmissionFunctionArray::getbulkvisCoefficients(double Tdec, double* bulkvisC
        // parameterization from JF
        // A Polynomial fit to each coefficient -- X is the temperature in fm^-1
        // Both fits are reliable between T=100 -- 180 MeV , do not trust it beyond
-       bulkvisCoefficients[0] = (  642096.624265727 
-                                 - 8163329.49562861*Tdec_fm_power[1] 
-                                 + 47162768.4292073*Tdec_fm_power[2] 
-                                 - 162590040.002683*Tdec_fm_power[3] 
-                                 + 369637951.096896*Tdec_fm_power[4] 
-                                 - 578181331.809836*Tdec_fm_power[5] 
-                                 + 629434830.225675*Tdec_fm_power[6] 
-                                 - 470493661.096657*Tdec_fm_power[7] 
-                                 + 230936465.421*Tdec_fm_power[8] 
-                                 - 67175218.4629078*Tdec_fm_power[9] 
+       bulkvisCoefficients[0] = (  642096.624265727
+                                 - 8163329.49562861*Tdec_fm_power[1]
+                                 + 47162768.4292073*Tdec_fm_power[2]
+                                 - 162590040.002683*Tdec_fm_power[3]
+                                 + 369637951.096896*Tdec_fm_power[4]
+                                 - 578181331.809836*Tdec_fm_power[5]
+                                 + 629434830.225675*Tdec_fm_power[6]
+                                 - 470493661.096657*Tdec_fm_power[7]
+                                 + 230936465.421*Tdec_fm_power[8]
+                                 - 67175218.4629078*Tdec_fm_power[9]
                                  + 8789472.32652964*Tdec_fm_power[10]);
 
-       bulkvisCoefficients[1] = (  1.18171174036192 
+       bulkvisCoefficients[1] = (  1.18171174036192
                                  - 17.6740645873717*Tdec_fm_power[1]
-                                 + 136.298469057177*Tdec_fm_power[2] 
-                                 - 635.999435106846*Tdec_fm_power[3] 
-                                 + 1918.77100633321*Tdec_fm_power[4] 
-                                 - 3836.32258307711*Tdec_fm_power[5] 
-                                 + 5136.35746882372*Tdec_fm_power[6] 
-                                 - 4566.22991441914*Tdec_fm_power[7] 
-                                 + 2593.45375240886*Tdec_fm_power[8] 
+                                 + 136.298469057177*Tdec_fm_power[2]
+                                 - 635.999435106846*Tdec_fm_power[3]
+                                 + 1918.77100633321*Tdec_fm_power[4]
+                                 - 3836.32258307711*Tdec_fm_power[5]
+                                 + 5136.35746882372*Tdec_fm_power[6]
+                                 - 4566.22991441914*Tdec_fm_power[7]
+                                 + 2593.45375240886*Tdec_fm_power[8]
                                  - 853.908199724349*Tdec_fm_power[9]
                                  + 124.260460450113*Tdec_fm_power[10]);
    }
@@ -879,54 +882,54 @@ void EmissionFunctionArray::getbulkvisCoefficients(double Tdec, double* bulkvisC
    {
        // A Polynomial fit to each coefficient -- Tfm is the temperature in fm^-1
        // Both fits are reliable between T=100 -- 180 MeV , do not trust it beyond
-       bulkvisCoefficients[0] = (  
-               21091365.1182649 - 290482229.281782*Tdec_fm_power[1] 
-             + 1800423055.01882*Tdec_fm_power[2] - 6608608560.99887*Tdec_fm_power[3] 
-             + 15900800422.7138*Tdec_fm_power[4] - 26194517161.8205*Tdec_fm_power[5] 
-             + 29912485360.2916*Tdec_fm_power[6] - 23375101221.2855*Tdec_fm_power[7] 
-             + 11960898238.0134*Tdec_fm_power[8] - 3618358144.18576*Tdec_fm_power[9] 
+       bulkvisCoefficients[0] = (
+               21091365.1182649 - 290482229.281782*Tdec_fm_power[1]
+             + 1800423055.01882*Tdec_fm_power[2] - 6608608560.99887*Tdec_fm_power[3]
+             + 15900800422.7138*Tdec_fm_power[4] - 26194517161.8205*Tdec_fm_power[5]
+             + 29912485360.2916*Tdec_fm_power[6] - 23375101221.2855*Tdec_fm_power[7]
+             + 11960898238.0134*Tdec_fm_power[8] - 3618358144.18576*Tdec_fm_power[9]
              + 491369134.205902*Tdec_fm_power[10]);
 
-       bulkvisCoefficients[1] = (  
-               4007863.29316896 - 55199395.3534188*Tdec_fm_power[1] 
-             + 342115196.396492*Tdec_fm_power[2] - 1255681487.77798*Tdec_fm_power[3] 
-             + 3021026280.08401*Tdec_fm_power[4] - 4976331606.85766*Tdec_fm_power[5] 
-             + 5682163732.74188*Tdec_fm_power[6] - 4439937810.57449*Tdec_fm_power[7] 
-             + 2271692965.05568*Tdec_fm_power[8] - 687164038.128814*Tdec_fm_power[9] 
+       bulkvisCoefficients[1] = (
+               4007863.29316896 - 55199395.3534188*Tdec_fm_power[1]
+             + 342115196.396492*Tdec_fm_power[2] - 1255681487.77798*Tdec_fm_power[3]
+             + 3021026280.08401*Tdec_fm_power[4] - 4976331606.85766*Tdec_fm_power[5]
+             + 5682163732.74188*Tdec_fm_power[6] - 4439937810.57449*Tdec_fm_power[7]
+             + 2271692965.05568*Tdec_fm_power[8] - 687164038.128814*Tdec_fm_power[9]
              + 93308348.3137008*Tdec_fm_power[10]);
    }
    else if (bulk_deltaf_kind == 3)
    {
        bulkvisCoefficients[0] = (
-               160421664.93603 - 2212807124.97991*Tdec_fm_power[1] 
-             + 13707913981.1425*Tdec_fm_power[2] - 50204536518.1767*Tdec_fm_power[3] 
-             + 120354649094.362*Tdec_fm_power[4] - 197298426823.223*Tdec_fm_power[5] 
-             + 223953760788.288*Tdec_fm_power[6] - 173790947240.829*Tdec_fm_power[7] 
-             + 88231322888.0423*Tdec_fm_power[8] - 26461154892.6963*Tdec_fm_power[9] 
+               160421664.93603 - 2212807124.97991*Tdec_fm_power[1]
+             + 13707913981.1425*Tdec_fm_power[2] - 50204536518.1767*Tdec_fm_power[3]
+             + 120354649094.362*Tdec_fm_power[4] - 197298426823.223*Tdec_fm_power[5]
+             + 223953760788.288*Tdec_fm_power[6] - 173790947240.829*Tdec_fm_power[7]
+             + 88231322888.0423*Tdec_fm_power[8] - 26461154892.6963*Tdec_fm_power[9]
              + 3559805050.19592*Tdec_fm_power[10]);
        bulkvisCoefficients[1] = (
-               33369186.2536556 - 460293490.420478*Tdec_fm_power[1] 
-             + 2851449676.09981*Tdec_fm_power[2] - 10443297927.601*Tdec_fm_power[3] 
-             + 25035517099.7809*Tdec_fm_power[4] - 41040777943.4963*Tdec_fm_power[5] 
-             + 46585225878.8723*Tdec_fm_power[6] - 36150531001.3718*Tdec_fm_power[7] 
-             + 18353035766.9323*Tdec_fm_power[8] - 5504165325.05431*Tdec_fm_power[9] 
+               33369186.2536556 - 460293490.420478*Tdec_fm_power[1]
+             + 2851449676.09981*Tdec_fm_power[2] - 10443297927.601*Tdec_fm_power[3]
+             + 25035517099.7809*Tdec_fm_power[4] - 41040777943.4963*Tdec_fm_power[5]
+             + 46585225878.8723*Tdec_fm_power[6] - 36150531001.3718*Tdec_fm_power[7]
+             + 18353035766.9323*Tdec_fm_power[8] - 5504165325.05431*Tdec_fm_power[9]
              + 740468257.784873*Tdec_fm_power[10]);
    }
    else if (bulk_deltaf_kind == 4)
    {
-       bulkvisCoefficients[0] = (  
-               1167272041.90731 - 16378866444.6842*Tdec_fm_power[1] 
-             + 103037615761.617*Tdec_fm_power[2] - 382670727905.111*Tdec_fm_power[3] 
-             + 929111866739.436*Tdec_fm_power[4] - 1540948583116.54*Tdec_fm_power[5] 
-             + 1767975890298.1*Tdec_fm_power[6] - 1385606389545*Tdec_fm_power[7] 
-             + 709922576963.213*Tdec_fm_power[8] - 214726945096.326*Tdec_fm_power[9] 
+       bulkvisCoefficients[0] = (
+               1167272041.90731 - 16378866444.6842*Tdec_fm_power[1]
+             + 103037615761.617*Tdec_fm_power[2] - 382670727905.111*Tdec_fm_power[3]
+             + 929111866739.436*Tdec_fm_power[4] - 1540948583116.54*Tdec_fm_power[5]
+             + 1767975890298.1*Tdec_fm_power[6] - 1385606389545*Tdec_fm_power[7]
+             + 709922576963.213*Tdec_fm_power[8] - 214726945096.326*Tdec_fm_power[9]
              + 29116298091.9219*Tdec_fm_power[10]);
        bulkvisCoefficients[1] = (
-               5103633637.7213 - 71612903872.8163*Tdec_fm_power[1] 
-             + 450509014334.964*Tdec_fm_power[2] - 1673143669281.46*Tdec_fm_power[3] 
-             + 4062340452589.89*Tdec_fm_power[4] - 6737468792456.4*Tdec_fm_power[5] 
-             + 7730102407679.65*Tdec_fm_power[6] - 6058276038129.83*Tdec_fm_power[7] 
-             + 3103990764357.81*Tdec_fm_power[8] - 938850005883.612*Tdec_fm_power[9] 
+               5103633637.7213 - 71612903872.8163*Tdec_fm_power[1]
+             + 450509014334.964*Tdec_fm_power[2] - 1673143669281.46*Tdec_fm_power[3]
+             + 4062340452589.89*Tdec_fm_power[4] - 6737468792456.4*Tdec_fm_power[5]
+             + 7730102407679.65*Tdec_fm_power[6] - 6058276038129.83*Tdec_fm_power[7]
+             + 3103990764357.81*Tdec_fm_power[8] - 938850005883.612*Tdec_fm_power[9]
              + 127305171097.249*Tdec_fm_power[10]);
    }
    return;
