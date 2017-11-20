@@ -12,7 +12,7 @@
 
 #CC := $(shell ../../crank/configure_compiler_C++.sh)
 CC = g++
-CFLAGS= -O3 -Wall
+CFLAGS= -O3 -Wall -fopenmp
 
 RM		=	rm -f
 O               =       .o
