@@ -194,7 +194,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
   //#pragma acc kernels here
   //should copy over all necessary arrays using #pragma acc data copy() or create()
   //lets try some OpenMP, different points in (pT,phi_p) are doing independent integrals 
-  #pragma omp parallel for
+  //#pragma omp parallel for
   for (int i=0; i<pT_tab_length; i++)
   {
       double pT = pT_tab->get(1,i+1);
@@ -209,7 +209,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
           double dE_ptdptdphidy_tmp = 0.0;
           //FO files for 3+1D will be very long
           //make sure that acc kernels automatically unrolls these loops
-	  #pragma omp for reduction(+:dN_ptdptdphidy_tmp)
+	  #pragma omp parallel for reduction(+:dN_ptdptdphidy_tmp)
           for (long l=0; l<FO_length; l++)
           {
               surf = &FOsurf_ptr[l];
