@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
    cout << endl << "**********************************************************" << endl;
    display_logo(2); // Hail to the king~
    cout << endl << "**********************************************************" << endl << endl;
-   
+
    // Read-in parameters
    ParameterReader *paraRdr = new ParameterReader;
    paraRdr->readFromFile("parameters.dat");
@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
    //read the chemical potential on the freeze out surface
    particle_info *particle = new particle_info [Maxparticle];
    int Nparticle = freeze_out_data.read_in_chemical_potentials(path, FO_length, FOsurf_ptr, particle);
-   
+
    cout << endl << " -- Read in data finished!" << endl << endl;
 
    // check chemical potentials
@@ -79,8 +79,10 @@ int main(int argc, char *argv[])
    Table chosen_particles("EOS/chosen_particles.dat"); // skip others except for these particle
    Table pT_tab("tables/pT_gauss_table.dat"); // pt position and weight table
    Table phi_tab("tables/phi_gauss_table.dat"); // phi position and weight table
+   Table y_tab("tables/y_riemann_table.dat"); //y positions and weights, here just a riemann sum!
    Table eta_tab("tables/eta_gauss_table_15.dat"); // eta uniform dist table
-   EmissionFunctionArray efa(paraRdr, 0.0, &chosen_particles, &pT_tab, &phi_tab, &eta_tab, particle, Nparticle, FOsurf_ptr, FO_length);
+   //this only calculates spectra for y = 0, since particle_y_in = 0 by this function call
+   EmissionFunctionArray efa(paraRdr, 0.0, &chosen_particles, &pT_tab, &phi_tab, &y_tab, &eta_tab, particle, Nparticle, FOsurf_ptr, FO_length);
 
    efa.calculate_dN_ptdptdphidy_and_flows_4all(9);
 

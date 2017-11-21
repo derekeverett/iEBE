@@ -21,12 +21,13 @@ using namespace std;
 
 
 // Class EmissionFunctionArray ------------------------------------------
-EmissionFunctionArray::EmissionFunctionArray(ParameterReader* paraRdr_in, double particle_y_in, Table* chosen_particles_in, Table* pT_tab_in, Table* phi_tab_in, Table* eta_tab_in, particle_info* particles_in, int Nparticles_in, FO_surf* FOsurf_ptr_in, long FO_length_in)
+EmissionFunctionArray::EmissionFunctionArray(ParameterReader* paraRdr_in, double particle_y_in, Table* chosen_particles_in, Table* pT_tab_in, Table* phi_tab_in, Table* y_tab_in, Table* eta_tab_in, particle_info* particles_in, int Nparticles_in, FO_surf* FOsurf_ptr_in, long FO_length_in)
 {
   paraRdr = paraRdr_in;
   particle_y = particle_y_in;
   pT_tab = pT_tab_in; pT_tab_length = pT_tab->getNumberOfRows();
   phi_tab = phi_tab_in; phi_tab_length = phi_tab->getNumberOfRows();
+  y_tab = y_tab_in; y_tab_length = y_tab->getNumberOfRows();
   eta_tab = eta_tab_in; eta_tab_length = eta_tab->getNumberOfRows();
 
   dN_ptdptdphidy = new Table(pT_tab_length, phi_tab_length);
@@ -129,7 +130,65 @@ EmissionFunctionArray::~EmissionFunctionArray()
   delete bulkdf_coeff;
 }
 
+void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
+{
+  last_particle_idx = particle_idx;
+  double sec;
+  sec = omp_get_wtime();
+  particle_info* particle;
+  particle = &particles[particle_idx];
 
+  double mass = particle->mass;
+  double sign = particle->sign;
+  double degen = particle->gspin;
+  int baryon = particle->baryon;
+
+  double prefactor = 1.0/(8.0*(M_PI*M_PI*M_PI))/hbarC/hbarC/hbarC;
+
+  double *bulkvisCoefficients;
+  if (bulk_deltaf_kind == 0) bulkvisCoefficients = new double [3];
+  else bulkvisCoefficients = new double [2];
+
+  //declare an array to hold the spectrum as function of pT, phi_p, and y
+  double dN_ptdptdphidy_tab[pT_tab_length][phi_tab_length][y_tab_length];
+
+  //initialize to zero
+  for (int ipt = 0; ipt < pT_tab_length; ipt++)
+  {
+    for (int iphip = 0; iphip < phi_tab_length; iphip++)
+    {
+      for (int iy = 0; iy < y_tab_length; iy++)
+      {
+        dN_ptdptdphidy_tab[ipy][iphip][iy] = 0.0;
+      }
+    }
+  }
+
+  double trig_phi_table[phi_tab_length][2]; // 2: 0,1-> cos,sin
+  for (int j = 0; j < phi_tab_length; j++)
+  {
+    double phi = phi_tab->get(1,j+1);
+    trig_phi_table[j][0] = cos(phi);
+    trig_phi_table[j][1] = sin(phi);
+  }
+
+  double hypertrig_etas_table[eta_tab_length][y_tab_length][2]; // 2: 0,1-> cosh,sinh
+  double delta_eta_tab[eta_tab_length]; // cache it
+  for (int ieta = 0; ieta < eta_tab_length; ieta++)
+  {
+    double eta_s = eta_tab->get(1, ieta + 1);
+    delta_eta_tab[ieta] = eta_tab->get(2, ieta + 1);
+    for (int iy = 0; iy < y_tab_length; iy++)
+    {
+      double y = y_tab->get(1, iy + 1);
+      hypertrig_etas_table[ieta][iy][0] = cosh(y - eta_s);
+      hypertrig_etas_table[ieta][iy][1] = sinh(y - eta_s);
+    }
+
+
+  }
+
+}
 void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
 // Calculate dN_xxx array.
 {
@@ -197,7 +256,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
 
   //#pragma acc kernels here
   //should copy over all necessary arrays using #pragma acc data copy() or create()
-  //lets try some OpenMP, different points in (pT,phi_p) are doing independent integrals 
+  //lets try some OpenMP, different points in (pT,phi_p) are doing independent integrals
   //#pragma omp parallel for
   for (int i=0; i<pT_tab_length; i++)
   {
@@ -213,7 +272,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
           double dE_ptdptdphidy_tmp = 0.0;
           //FO files for 3+1D will be very long
           //make sure that acc kernels automatically unrolls these loops
-	  #pragma omp parallel for reduction(+:dN_ptdptdphidy_tmp)
+	        #pragma omp parallel for reduction(+:dN_ptdptdphidy_tmp)
           for (long l=0; l<FO_length; l++)
           {
               surf = &FOsurf_ptr[l];
@@ -732,7 +791,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
 
             // loop over chosen particles
             particle_info* particle = NULL;
-            for (int m=0; m<number_of_chosen_particles; m++) //parallelize? 
+            for (int m=0; m<number_of_chosen_particles; m++) //parallelize?
             {
                 int particle_idx = chosen_particles_sampling_table[m];
                 particle = &particles[particle_idx];
