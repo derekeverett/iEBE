@@ -6,6 +6,7 @@
 #include<iomanip>
 #include<vector>
 #include<stdio.h>
+#include <omp.h>
 
 #include "main.h"
 #include "readindata.h"
@@ -134,7 +135,10 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
 {
   last_particle_idx = particle_idx;
   Stopwatch sw;
-  sw.tic();
+  //sw.tic();
+  //use omp for timing with multiple threads
+  double sec;
+  sec = omp_get_wtime();
 
   double y = particle_y;
   particle_info* particle;
@@ -353,8 +357,9 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
 
   delete [] bulkvisCoefficients;
 
-  sw.toc();
-  cout << endl << "Finished " << sw.takeTime() << " seconds." << endl;
+  //sw.toc();
+  sec = omp_get_wtime() - sec;
+  cout << endl << "Finished " << sec << " seconds." << endl;
 }
 
 void EmissionFunctionArray::write_dN_ptdptdphidy_toFile()
