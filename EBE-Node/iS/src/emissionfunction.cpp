@@ -199,7 +199,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
       {
         double y = y_tab->get(1, y + 1)
         double dN_ptdptdphidy_tmp = 0.0;
-
+	//note dN_ptdptdphidy_tmp is a shared variable (accumulator)!
         for (long l = 0; l < FO_length; l++)
         {
           surf = &FOsurf_ptr[l];
@@ -248,7 +248,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
           // Must adjust this to be correct for the p*del \tau term.
           // The plus sign is due to the fact that the DA# variables
           // are for the covariant surface integration
-          double pdotdsigma = ptau * datau + px * dax + py * da2 + peta * daeta; //is daeta the covariant component?
+          double pdotdsigma = ptau * datau + px * dax + py * day + peta * daeta; //is daeta the covariant component?
 
           //viscous corrections
           double delta_f_shear = 0.0;
@@ -286,7 +286,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
               }
             double ratio = min(1., fabs(1. / (delta_f_shear + delta_f_bulk)));
             double result = (prefactor * degen * pdotdsigma * tau * f0 * (1. + (delta_f_shear + delta_f_bulk) * ratio));
-
+	    //#pragma omp atomic?
             dN_ptdptdphidy_tmp += result;
           } // l
         dN_pTdpTdphidy_tab[ipT][iphip][iy] = dN_ptdptdphidy_tmp;
