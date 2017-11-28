@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
    Table chosen_particles("EOS/chosen_particles.dat"); // skip others except for these particle
    Table pT_tab("tables/pT_gauss_table.dat"); // pt position and weight table
    Table phi_tab("tables/phi_gauss_table.dat"); // phi position and weight table
-   Table y_tab("tables/y_riemann_table.dat"); //y positions and weights, here just a riemann sum!
+   Table y_tab("tables/y_riemann_table_21pt.dat"); //y positions and weights, here just a riemann sum!
    Table eta_tab("tables/eta_gauss_table_15.dat"); // eta uniform dist table
    //this only calculates spectra for y = 0, since particle_y_in = 0 by this function call
    EmissionFunctionArray efa(paraRdr, 0.0, &chosen_particles, &pT_tab, &phi_tab, &y_tab, &eta_tab, particle, Nparticle, FOsurf_ptr, FO_length);

@@ -135,8 +135,7 @@ EmissionFunctionArray::~EmissionFunctionArray()
 void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
 {
   last_particle_idx = particle_idx;
-  double sec;
-  sec = omp_get_wtime();
+  double sec = omp_get_wtime();
   particle_info* particle;
   particle = &particles[particle_idx];
 
@@ -203,7 +202,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
       {
         double y = y_tab->get(1, iy + 1);
         double dN_ptdptdphidy_tmp = 0.0;
-	//note dN_ptdptdphidy_tmp is a shared variable (accumulator)!
+	       //note dN_ptdptdphidy_tmp is a shared variable (accumulator)!
         for (long l = 0; l < FO_length; l++)
         {
           surf = &FOsurf_ptr[l];
@@ -295,6 +294,28 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
       } //iy
     }//iphip
   } //ipT
+  sec = omp_get_wtime() - sec;
+  cout << endl << "Finished " << sec << " seconds." << endl;
+
+  //write it to file - move this functionality elsewhere!
+  string spectra3D_filename = "results/spectra3D.dat";
+  ofstream spectra3DFile(spectra3D_filename.c_str(), ios_base::app);
+  //this writes in block format , different blocks correspond to different values of y
+  //in each block, the row corresponds to the value of phip and the column to the value of pT
+  for (int iy = 0; iy < y_tab_length; iy++)
+  {
+    for (int iphip = 0; iphip < phi_tab_length; iphip++)
+    {
+      for (int ipT = 0; ipT < pT_tab_length; ipT++)
+      {
+        spectra3DFile << scientific <<  setw(15) << setprecision(8) << dN_pTdpTdphidy_tab[ipT][iphip][iy] << "\t";
+      }
+      spectra3DFile << "\n";
+    }
+  }
+
+  spectra3DFile.close();
+
 }
 void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
 // Calculate dN_xxx array.
@@ -542,7 +563,16 @@ void EmissionFunctionArray::write_dN_ptdptdphidy_toFile()
      of2.close();
   }
 }
+/*
+void EmissionFunctionArray::write_dN_ptdptdphidy3d_toFile()
+// Append the dN_xxx results to file.
+{
+  ofstream of1(dN_ptdptdphidy_filename.c_str(), ios_base::app);
+  //dN_ptdptdphidy->printTable(of1);
 
+  of1.close();
+}
+*/
 
 //***************************************************************************
 void EmissionFunctionArray::calculate_flows(int to_order, string flow_differential_filename_in, string flow_integrated_filename_in)
@@ -849,10 +879,11 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
             else
             {
               cout << " -- Processing... " << endl;
-              //calculate_dN_ptdptdphidy(n); //calculate 2D spectra
-              calculate_dN_ptdptdphidy_parallel(n); //calculate 3D spectra 
+              calculate_dN_ptdptdphidy(n); //calculate 2D spectra
+              //calculate_dN_ptdptdphidy_parallel(n); //calculate 3D spectra
             }
             write_dN_ptdptdphidy_toFile(); //this will need to be edited for 3D spectra
+            //write_dN_ptdptdphidy3d_toFile();
 
             // next flows:
             ofstream of1(flow_differential_filename_old.c_str(), ios_base::app);
@@ -913,8 +944,9 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
                 }
                 else
                 {
-                    cout << " -- Calculating dN_ptdptdphidy... " << endl;
-                    calculate_dN_ptdptdphidy(particle_idx); //parallelize this function
+                    cout << " -- Calculating dN_ptdptdphidy..." << endl;
+                    //calculate_dN_ptdptdphidy(particle_idx);  //for 2D spectra 
+                    calculate_dN_ptdptdphidy_parallel(particle_idx); //for 3D spectra
                 }
 
                 // Store calculated table
