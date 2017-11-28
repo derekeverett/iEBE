@@ -186,20 +186,20 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
   //#pragma acc kernels here
   //should copy over all necessary arrays using #pragma acc data copy() or create()
   //lets try some OpenMP, different points in (pT, phi_p, y) are doing independent integrals
-  //#pragma omp parallel for
+  #pragma omp parallel for collapse(3)
   //should we reorganize loop structure? first loop over freezeout surface, then over pT,phip,y?
   for (int ipT = 0; ipT < pT_tab_length; ipT++)
   {
-    double pT = pT_tab->get(1, ipT + 1);
-    double mT = sqrt(mass * mass + pT * pT);
-
     for (int iphip = 0; iphip < phi_tab_length; iphip++)
     {
-      double px = pT * trig_phi_table[iphip][0];
-      double py = pT * trig_phi_table[iphip][1];
-
       for (int iy = 0; iy < y_tab_length; iy++)
       {
+        double pT = pT_tab->get(1, ipT + 1);
+        double mT = sqrt(mass * mass + pT * pT);
+
+        double px = pT * trig_phi_table[iphip][0];
+        double py = pT * trig_phi_table[iphip][1];
+
         double y = y_tab->get(1, iy + 1);
         double dN_ptdptdphidy_tmp = 0.0;
 	       //note dN_ptdptdphidy_tmp is a shared variable (accumulator)!
@@ -945,7 +945,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
                 else
                 {
                     cout << " -- Calculating dN_ptdptdphidy..." << endl;
-                    //calculate_dN_ptdptdphidy(particle_idx);  //for 2D spectra 
+                    //calculate_dN_ptdptdphidy(particle_idx);  //for 2D spectra
                     calculate_dN_ptdptdphidy_parallel(particle_idx); //for 3D spectra
                 }
 
