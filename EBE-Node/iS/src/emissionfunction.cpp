@@ -30,7 +30,9 @@ EmissionFunctionArray::EmissionFunctionArray(ParameterReader* paraRdr_in, double
   y_tab = y_tab_in; y_tab_length = y_tab->getNumberOfRows();
   eta_tab = eta_tab_in; eta_tab_length = eta_tab->getNumberOfRows();
 
-  dN_ptdptdphidy = new Table(pT_tab_length, phi_tab_length);
+  dN_ptdptdphidy = new Table(pT_tab_length, phi_tab_length); //note Tables are 2D by construction
+  //we either need to define a new table for every value of rapidity or make a more general class
+  //or do not use the Table class at all, and just use 3D arrays
   dN_ptdptdphidy_filename = "results/dN_ptdptdphidy.dat";
 
   // get control parameters
@@ -145,6 +147,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
 
   double prefactor = 1.0/(8.0*(M_PI*M_PI*M_PI))/hbarC/hbarC/hbarC;
 
+  FO_surf* surf = &FOsurf_ptr[0];
+
   double *bulkvisCoefficients;
   if (bulk_deltaf_kind == 0) bulkvisCoefficients = new double [3];
   else bulkvisCoefficients = new double [2];
@@ -187,7 +191,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
   //should we reorganize loop structure? first loop over freezeout surface, then over pT,phip,y?
   for (int ipT = 0; ipT < pT_tab_length; ipT++)
   {
-    double pT = pT_tab->get(1, i + 1);
+    double pT = pT_tab->get(1, ipT + 1);
     double mT = sqrt(mass * mass + pT * pT);
 
     for (int iphip = 0; iphip < phi_tab_length; iphip++)
@@ -197,7 +201,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
 
       for (int iy = 0; iy < y_tab_length; iy++)
       {
-        double y = y_tab->get(1, y + 1)
+        double y = y_tab->get(1, iy + 1);
         double dN_ptdptdphidy_tmp = 0.0;
 	//note dN_ptdptdphidy_tmp is a shared variable (accumulator)!
         for (long l = 0; l < FO_length; l++)
@@ -237,8 +241,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
             getbulkvisCoefficients(Tdec, bulkvisCoefficients); //does this function need to run on device?
           }
 
-          double ptau = mT * cosh(y - eta) //contravariant
-          double peta = (-1.0 / tau) * mT * sinh(y - eta) //contravariant
+          double ptau = mT * cosh(y - eta); //contravariant
+          double peta = (-1.0 / tau) * mT * sinh(y - eta); //contravariant
 
           //thermal equilibrium distributions
           double pdotu = ptau * utau - px * ux - py * uy - (tau * tau) * peta * ueta; //watch factors of tau from metric! is ueta read in as contravariant?
@@ -246,9 +250,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
           double f0 = 1./(exp(expon) + sign);
 
           // Must adjust this to be correct for the p*del \tau term.
-          // The plus sign is due to the fact that the DA# variables
-          // are for the covariant surface integration
-          double pdotdsigma = ptau * datau + px * dax + py * day + peta * daeta; //is daeta the covariant component?
+          double pdotdsigma = ptau * datau + px * dax + py * day + peta * daeta; //are these dax, day etc. the covariant components?
 
           //viscous corrections
           double delta_f_shear = 0.0;
@@ -847,9 +849,10 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
             else
             {
               cout << " -- Processing... " << endl;
-              calculate_dN_ptdptdphidy(n);
+              //calculate_dN_ptdptdphidy(n); //calculate 2D spectra
+              calculate_dN_ptdptdphidy_parallel(n); //calculate 3D spectra 
             }
-            write_dN_ptdptdphidy_toFile();
+            write_dN_ptdptdphidy_toFile(); //this will need to be edited for 3D spectra
 
             // next flows:
             ofstream of1(flow_differential_filename_old.c_str(), ios_base::app);

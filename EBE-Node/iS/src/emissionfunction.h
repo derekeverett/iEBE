@@ -23,8 +23,8 @@ private:
   int F0_IS_NOT_SMALL;
 
   double particle_y;
-  Table *pT_tab, *phi_tab, *eta_tab;
-  int pT_tab_length, phi_tab_length, eta_tab_length;
+  Table *pT_tab, *phi_tab, *y_tab, *eta_tab;
+  int pT_tab_length, phi_tab_length, y_tab_length, eta_tab_length;
   long FO_length;
   Table *dN_ptdptdphidy;
   Table *dE_ptdptdphidy;
@@ -41,10 +41,11 @@ private:
   Table *bulkdf_coeff;
 
 public:
-  EmissionFunctionArray(ParameterReader* paraRdr_in, double particle_y_in, Table* chosen_particle, Table* pT_tab_in, Table* phi_tab_in, Table* eta_tab_in, particle_info* particles_in, int Nparticles, FO_surf* FOsurf_ptr_in, long FO_length_in);
+  EmissionFunctionArray(ParameterReader* paraRdr_in, double particle_y_in, Table* chosen_particle, Table* pT_tab_in, Table* phi_tab_in, Table* y_tab_in, Table* eta_tab_in, particle_info* particles_in, int Nparticles, FO_surf* FOsurf_ptr_in, long FO_length_in);
   ~EmissionFunctionArray();
 
   void calculate_dN_ptdptdphidy(int);
+  void calculate_dN_ptdptdphidy_parallel(int); //for 3D spectra
   void write_dN_ptdptdphidy_toFile();
   string dN_ptdptdphidy_filename; // where to save
   string dE_ptdptdphidy_filename; // where to save
