@@ -188,6 +188,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
   //lets try some OpenMP, different points in (pT, phi_p, y) are doing independent integrals
   #pragma omp parallel for collapse(3)
   //should we reorganize loop structure? first loop over freezeout surface, then over pT,phip,y?
+  //if not, then every cell of freezeout surface is being read many times (for each value of momentum)
   for (int ipT = 0; ipT < pT_tab_length; ipT++)
   {
     for (int iphip = 0; iphip < phi_tab_length; iphip++)
@@ -202,7 +203,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel(int particle_idx)
 
         double y = y_tab->get(1, iy + 1);
         double dN_ptdptdphidy_tmp = 0.0;
-	       //note dN_ptdptdphidy_tmp is a shared variable (accumulator)!
+	//note dN_ptdptdphidy_tmp is a shared variable (accumulator)!
+#pragma omp parallel for reduction(+:dN_ptdptdphidy_tmp)
         for (long l = 0; l < FO_length; l++)
         {
           surf = &FOsurf_ptr[l];
