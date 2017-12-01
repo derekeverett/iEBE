@@ -2,17 +2,19 @@
 #  Makefile iS                                     Chun Shen Apr. 9, 2013
 # ===========================================================================
 ##
-##  Environments :	MAIN	= 	main sourcefile	
+##  Environments :	MAIN	= 	main sourcefile
 ##
-##  Usage : 	(g)make	[all]		compile the whole project		
+##  Usage : 	(g)make	[all]		compile the whole project
 ##			install	make all and copy binary to $INSTPATH
-##			clean		remove objectfiles in obj_$TYPE 
+##			clean		remove objectfiles in obj_$TYPE
 ##			distclean	remove all objectsfiles and binaries
-##  
+##
 
 #CC := $(shell ../../crank/configure_compiler_C++.sh)
 CC = g++
+#CC = pgc++
 CFLAGS= -O3 -Wall -fopenmp -march=native
+#CFLAGS= -acc -mp -Minfo -ta=nvidia
 
 RM		=	rm -f
 O               =       .o
@@ -57,17 +59,17 @@ all:		mkobjdir $(TARGET)
 help:
 		@grep '^##' GNUmakefile
 
-mkobjdir:	
+mkobjdir:
 		-@mkdir -p $(OBJDIR)
 
-$(TARGET):	$(OBJECTS)	
-		$(CC) $(OBJECTS) -o $(TARGET) $(LDFLAGS) 
+$(TARGET):	$(OBJECTS)
+		$(CC) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
 #		strip $(TARGET)
 
-clean:		
+clean:
 		-rm $(OBJECTS)
 
-distclean:	
+distclean:
 		-rm $(TARGET)
 		-rm -r obj
 

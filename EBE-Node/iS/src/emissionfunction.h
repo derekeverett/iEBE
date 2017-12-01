@@ -46,6 +46,8 @@ public:
 
   void calculate_dN_ptdptdphidy(int);
   void calculate_dN_ptdptdphidy_parallel(int); //for 3D spectra
+  void calculate_dN_ptdptdphidy_parallel_2(int); //reordered loop structure
+  void calculate_dN_ptdptdphidy_parallel_3(int); //again changed array handling   
   void write_dN_ptdptdphidy_toFile();
   string dN_ptdptdphidy_filename; // where to save
   string dE_ptdptdphidy_filename; // where to save
