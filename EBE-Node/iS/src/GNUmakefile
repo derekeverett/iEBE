@@ -14,7 +14,8 @@
 CC = g++
 #CC = pgc++
 CFLAGS= -O3 -Wall -fopenmp -march=native
-#CFLAGS= -acc -mp -Minfo -ta=nvidia
+#CFLAGS= -acc -Minfo -ta=nvidia,time
+#CFLAGS= -acc -ta=tesla:managed #uses unified memory - simplifies copying of dynamic arrays host <-> device
 
 RM		=	rm -f
 O               =       .o
