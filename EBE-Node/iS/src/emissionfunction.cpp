@@ -13,7 +13,9 @@
 #include "Stopwatch.h"
 #include "arsenal.h"
 #include "ParameterReader.h"
-
+#ifdef _OPENACC
+#include <accelmath.h>
+#endif
 #define AMOUNT_OF_OUTPUT 0 // smaller value means less outputs
 
 using namespace std;
@@ -30,8 +32,8 @@ EmissionFunctionArray::EmissionFunctionArray(ParameterReader* paraRdr_in, double
   eta_tab = eta_tab_in; eta_tab_length = eta_tab->getNumberOfRows();
 
   dN_ptdptdphidy = new Table(pT_tab_length, phi_tab_length); //note Tables are 2D by construction
-  //we either need to define a new table for every value of rapidity or make a more general class
-  //or do not use the Table class at all, and just use 3D arrays
+  //a class member to hold 3D spectra for one species
+  dN_pTdpTdphidy_3D = new double [pT_tab_length * phi_tab_length * y_tab_length];
   dN_ptdptdphidy_filename = "results/dN_ptdptdphidy.dat";
 
   // get control parameters
@@ -129,12 +131,12 @@ EmissionFunctionArray::~EmissionFunctionArray()
   delete[] chosen_particles_01_table;
   delete[] chosen_particles_sampling_table;
   delete bulkdf_coeff;
+  delete[] dN_pTdpTdphidy_3D; //for holding 3d spectra of one species
 }
 
 //this function reorganizes the loop structure again
 void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx)
 {
-
   last_particle_idx = particle_idx;
   //double sec = omp_get_wtime();
   particle_info* particle;
@@ -224,8 +226,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   bulkPi = (double*)calloc(FO_chunk, sizeof(double));
 
   //this should be moved outside this function so that it is not done redundantly for every particle inside particle loop
+  //also it should only be copied once to the gpu ... !
   //#pragma omp parallel for
-  printf("FO_chunk is %d\n", FO_chunk);
   for (int icell = 0; icell < FO_chunk; icell++)
   {
     //reading info from surface
@@ -256,9 +258,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   }
   //sec = omp_get_wtime() - sec;
 
-  //newest version
-
-  //declare a huge array of size FO_length * pT_tab_length * phi_tab_length * y_tab_length;
+  //declare a huge array of size FO_chunk * pT_tab_length * phi_tab_length * y_tab_length
+  //to hold the spectra for each surface cell in a chunk
   double *dN_pTdpTdphidy_all;
   dN_pTdpTdphidy_all = (double*)calloc(FO_chunk * pT_tab_length * phi_tab_length * y_tab_length, sizeof(double));
 
@@ -267,6 +268,9 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   //this section of code takes majority of time (compared to the reduction ) when using omp with 20 threads
   #pragma acc kernels
   #pragma acc loop independent
+  //can we use cuda unified memory here to simplify the passing of freezeout surface info to gpu?
+  //if so, we don't need to worry about handing the GPU one manageable chunk at a time, but let compiler figure it out...
+  //even so, for a large FO surface, the array dN_pTdpTdphidy_all might not fit in the host RAM
   for (int icell = 0; icell < FO_chunk; icell++)
   {
     for (int ipT = 0; ipT < pT_tab_length; ipT++)
@@ -289,13 +293,11 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
           //NEED TO MOVE getbulkvisCoefficients OUTSIDE OF ACC ROUTINE SOMEHOW
           if (INCLUDE_BULKDELTAF == 1)
           {
-            //getbulkvisCoefficients(Tdec[icell], bulkvisCoefficients); //does this function need to run on device?
+            //FIX THIS - NEED BULK VIS COEFFICIENTS ON GPU
+            //getbulkvisCoefficients(Tdec[icell], bulkvisCoefficients);
           }
-          //NEED ACC ROUTINES FOR COSH AND SINH!!! FIX THIS!!!
           double ptau = mT * cosh(y - eta[icell]); //contravariant
-          //double ptau = mT;
           double peta = (-1.0 / tau[icell]) * mT * sinh(y - eta[icell]); //contravariant
-          //double peta = (-1.0 / tau[icell]) * mT; //contravariant
 
           //thermal equilibrium distributions
           double pdotu = ptau * utau[icell] - px * ux[icell] - py * uy[icell] - (tau[icell] * tau[icell]) * peta * ueta[icell]; //watch factors of tau from metric! is ueta read in as contravariant?
@@ -338,8 +340,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
           }
 
           double ratio = min(1., fabs(1. / (delta_f_shear + delta_f_bulk)));
-          long long int is = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
-          dN_pTdpTdphidy_all[is] = (prefactor * degen * pdotdsigma * tau[icell] * f0 * (1. + (delta_f_shear + delta_f_bulk) * ratio));
+          long long int ir = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
+          dN_pTdpTdphidy_all[ir] = (prefactor * degen * pdotdsigma * tau[icell] * f0 * (1. + (delta_f_shear + delta_f_bulk) * ratio));
         } //iy
       } //iphip
     } //ipT
@@ -355,37 +357,15 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
     {
       for (int iy = 0; iy < y_tab_length; iy++)
       {
+        long long int is = ipT + (pT_tab_length * iphip) + (pT_tab_length * phi_tab_length * iy);
         for (int icell = 0; icell < FO_chunk; icell++)
         {
-          long long int is = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
-          dN_pTdpTdphidy_tab[ipT][iphip][iy] += dN_pTdpTdphidy_all[is];
+          long long int ir = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
+          dN_pTdpTdphidy_3D[is] += dN_pTdpTdphidy_all[ir];
         }//icell
       }//iy
     }//iphip
   }//ipT
-
-  printf("writing to file\n");
-
-  //write it to file - move this functionality elsewhere!
-  int monval = particle->monval; //MC particle ID
-  char spectra3D_filename[255] = "";
-  sprintf(spectra3D_filename, "results/%d_spectra3D.dat", monval);
-  ofstream spectra3DFile(spectra3D_filename, ios_base::app);
-  //this writes in block format , different blocks correspond to different values of y
-  //in each block, the row corresponds to the value of phip and the column to the value of pT
-  for (int iy = 0; iy < y_tab_length; iy++)
-  {
-    for (int iphip = 0; iphip < phi_tab_length; iphip++)
-    {
-      for (int ipT = 0; ipT < pT_tab_length; ipT++)
-      {
-        spectra3DFile << scientific <<  setw(15) << setprecision(8) << dN_pTdpTdphidy_tab[ipT][iphip][iy] << "\t";
-      }
-      spectra3DFile << "\n";
-    }
-  }
-  spectra3DFile.close();
-
 
   //free memory
   free(dN_pTdpTdphidy_all);
@@ -420,9 +400,6 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
   last_particle_idx = particle_idx;
   Stopwatch sw;
   //sw.tic();
-  //use omp for timing with multiple threads
-  //double sec;
-  //sec = omp_get_wtime();
 
   double y = particle_y;
   particle_info* particle;
@@ -642,7 +619,6 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy(int particle_idx)
   delete [] bulkvisCoefficients;
 
   //sw.toc();
-  //sec = omp_get_wtime() - sec;
   //cout << endl << "Finished " << sec << " seconds." << endl;
 }
 
@@ -660,16 +636,34 @@ void EmissionFunctionArray::write_dN_ptdptdphidy_toFile()
      of2.close();
   }
 }
-/*
-void EmissionFunctionArray::write_dN_ptdptdphidy3d_toFile()
+
+void EmissionFunctionArray::write_dN_ptdptdphidy3d_toFile(int monval) //pass monte carlo ID as argument for filename
 // Append the dN_xxx results to file.
 {
-  ofstream of1(dN_ptdptdphidy_filename.c_str(), ios_base::app);
-  //dN_ptdptdphidy->printTable(of1);
+  printf("writing to file\n");
+  //write 3D spectra in block format, different blocks for different values of rapidity,
+  //rows corespond to phip and columns correspond to pT
+  char filename[255] = "";
+  sprintf(filename, "results/%d_spectra_3D.dat", monval);
+  ofstream spectra3DFile(filename, ios_base::app);
+  //this writes in block format , different blocks correspond to different values of y
+  //in each block, the row corresponds to the value of phip and the column to the value of pT
+  for (int iy = 0; iy < y_tab_length; iy++)
+  {
+    for (int iphip = 0; iphip < phi_tab_length; iphip++)
+    {
+      for (int ipT = 0; ipT < pT_tab_length; ipT++)
+      {
+        long long int is = ipT + (pT_tab_length * iphip) + (pT_tab_length * phi_tab_length * iy);
+        spectra3DFile << scientific <<  setw(15) << setprecision(8) << dN_pTdpTdphidy_3D[is] << "\t";
+      } //ipT
+      spectra3DFile << "\n";
+    } //iphip
+  } //iy
+  spectra3DFile.close();
 
-  of1.close();
 }
-*/
+
 
 //***************************************************************************
 void EmissionFunctionArray::calculate_flows(int to_order, string flow_differential_filename_in, string flow_integrated_filename_in)
@@ -739,13 +733,11 @@ void EmissionFunctionArray::calculate_flows(int to_order, string flow_differenti
     }
 
   }
-  //cout << "done." << endl;
-
 
   //---------------------
   // integrated flow
   //---------------------
-  //cout << "Calculating integrated flows... ";
+
 
   double normalizationi = 0;
 
@@ -932,9 +924,6 @@ void EmissionFunctionArray::calculate_Energyflows(int to_order, string flow_diff
 }
 //***************************************************************************
 
-
-
-
 //*********************************************************************************************
 void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order)
 // Calculate dNArrays and flows for all particles given in chosen_particle file.
@@ -1027,7 +1016,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
 
             // loop over chosen particles
             particle_info* particle = NULL;
-            for (int m=0; m<number_of_chosen_particles; m++) //parallelize?
+            for (int m=0; m<number_of_chosen_particles; m++)
             {
                 int particle_idx = chosen_particles_sampling_table[m];
                 particle = &particles[particle_idx];
@@ -1043,7 +1032,9 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_and_flows_4all(int to_order
                 {
                     cout << " -- Calculating dN_ptdptdphidy..." << endl;
                     //calculate_dN_ptdptdphidy(particle_idx);  //for 2D spectra
-                    calculate_dN_ptdptdphidy_parallel_3(particle_idx);
+                    calculate_dN_ptdptdphidy_parallel_3(particle_idx); //for 3D spectra
+                    //then write to file here
+                    write_dN_ptdptdphidy3d_toFile(monval); //write the spectra for one species
                 }
 
                 // Store calculated table
@@ -1134,7 +1125,7 @@ bool EmissionFunctionArray::particles_are_the_same(int idx1, int idx2)
 
     return true;
 }
-
+//#pragma acc routine
 void EmissionFunctionArray::getbulkvisCoefficients(double Tdec, double* bulkvisCoefficients)
 {
    double Tdec_fm = Tdec/hbarC;  // [1/fm]

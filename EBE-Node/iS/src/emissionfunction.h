@@ -28,6 +28,7 @@ private:
   long FO_length;
   Table *dN_ptdptdphidy;
   Table *dE_ptdptdphidy;
+  double *dN_pTdpTdphidy_3D; //to hold 3D spectra of one species
   int number_of_chosen_particles;
   int *chosen_particles_01_table; // has length Nparticle, 0 means miss, 1 means include
   int *chosen_particles_sampling_table; // store particle index; the sampling process follows the order specified by this table
@@ -45,10 +46,11 @@ public:
   ~EmissionFunctionArray();
 
   void calculate_dN_ptdptdphidy(int);
-  void calculate_dN_ptdptdphidy_parallel(int); //for 3D spectra
-  void calculate_dN_ptdptdphidy_parallel_2(int); //reordered loop structure
-  void calculate_dN_ptdptdphidy_parallel_3(int); //again changed array handling   
+  //void calculate_dN_ptdptdphidy_parallel(int); //for 3D spectra
+  //void calculate_dN_ptdptdphidy_parallel_2(int); //reordered loop structure
+  void calculate_dN_ptdptdphidy_parallel_3(int); //again changed array handling
   void write_dN_ptdptdphidy_toFile();
+  void write_dN_ptdptdphidy3d_toFile(int); //write 3D spectra to file
   string dN_ptdptdphidy_filename; // where to save
   string dE_ptdptdphidy_filename; // where to save
 
