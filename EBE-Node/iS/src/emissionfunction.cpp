@@ -135,6 +135,7 @@ EmissionFunctionArray::~EmissionFunctionArray()
 }
 
 //this function reorganizes the loop structure again
+//try acceleration via omp threads and simd, as well as openacc
 void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx)
 {
   last_particle_idx = particle_idx;
@@ -157,7 +158,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   if (bulk_deltaf_kind == 0) bulkvisCoefficients = new double [3];
   else bulkvisCoefficients = new double [2];
 
-  //declare an array to hold the final spectra, summed over all FO cells
+  /*
+  //declare an array to hold the final spectra
   double dN_pTdpTdphidy_tab[pT_tab_length][phi_tab_length][y_tab_length];
   //initialize to zero
   #pragma omp parallel for collapse(3)
@@ -171,7 +173,7 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
       }
     }
   }
-
+  */
   double trig_phi_table[phi_tab_length][2]; // 2: 0,1-> cos,sin
   for (int j = 0; j < phi_tab_length; j++)
   {
@@ -199,36 +201,36 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   double *datau, *dax, *day, *daeta, *pi00, *pi01, *pi02, *pi11, *pi12, *pi22, *pi33;
   double *muB, *bulkPi;
 
-  Tdec = (double*)calloc(FO_chunk, sizeof(double));
-  Pdec = (double*)calloc(FO_chunk, sizeof(double));
-  Edec = (double*)calloc(FO_chunk, sizeof(double));
-  mu = (double*)calloc(FO_chunk, sizeof(double));
-  tau = (double*)calloc(FO_chunk, sizeof(double));
-  eta = (double*)calloc(FO_chunk, sizeof(double));
-  utau = (double*)calloc(FO_chunk, sizeof(double));
-  ux = (double*)calloc(FO_chunk, sizeof(double));
-  uy = (double*)calloc(FO_chunk, sizeof(double));
-  ueta = (double*)calloc(FO_chunk, sizeof(double));
+  Tdec = (double*)calloc(FO_length, sizeof(double));
+  Pdec = (double*)calloc(FO_length, sizeof(double));
+  Edec = (double*)calloc(FO_length, sizeof(double));
+  mu = (double*)calloc(FO_length, sizeof(double));
+  tau = (double*)calloc(FO_length, sizeof(double));
+  eta = (double*)calloc(FO_length, sizeof(double));
+  utau = (double*)calloc(FO_length, sizeof(double));
+  ux = (double*)calloc(FO_length, sizeof(double));
+  uy = (double*)calloc(FO_length, sizeof(double));
+  ueta = (double*)calloc(FO_length, sizeof(double));
 
-  datau = (double*)calloc(FO_chunk, sizeof(double));
-  dax = (double*)calloc(FO_chunk, sizeof(double));
-  day = (double*)calloc(FO_chunk, sizeof(double));
-  daeta = (double*)calloc(FO_chunk, sizeof(double));
-  pi00 = (double*)calloc(FO_chunk, sizeof(double));
-  pi01 = (double*)calloc(FO_chunk, sizeof(double));
-  pi02 = (double*)calloc(FO_chunk, sizeof(double));
-  pi11 = (double*)calloc(FO_chunk, sizeof(double));
-  pi12 = (double*)calloc(FO_chunk, sizeof(double));
-  pi22 = (double*)calloc(FO_chunk, sizeof(double));
-  pi33 = (double*)calloc(FO_chunk, sizeof(double));
+  datau = (double*)calloc(FO_length, sizeof(double));
+  dax = (double*)calloc(FO_length, sizeof(double));
+  day = (double*)calloc(FO_length, sizeof(double));
+  daeta = (double*)calloc(FO_length, sizeof(double));
+  pi00 = (double*)calloc(FO_length, sizeof(double));
+  pi01 = (double*)calloc(FO_length, sizeof(double));
+  pi02 = (double*)calloc(FO_length, sizeof(double));
+  pi11 = (double*)calloc(FO_length, sizeof(double));
+  pi12 = (double*)calloc(FO_length, sizeof(double));
+  pi22 = (double*)calloc(FO_length, sizeof(double));
+  pi33 = (double*)calloc(FO_length, sizeof(double));
 
-  muB = (double*)calloc(FO_chunk, sizeof(double));
-  bulkPi = (double*)calloc(FO_chunk, sizeof(double));
+  muB = (double*)calloc(FO_length, sizeof(double));
+  bulkPi = (double*)calloc(FO_length, sizeof(double));
 
   //this should be moved outside this function so that it is not done redundantly for every particle inside particle loop
   //also it should only be copied once to the gpu ... !
   //#pragma omp parallel for
-  for (int icell = 0; icell < FO_chunk; icell++)
+  for (int icell = 0; icell < FO_length; icell++)
   {
     //reading info from surface
     surf = &FOsurf_ptr[icell];
@@ -263,109 +265,118 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   double *dN_pTdpTdphidy_all;
   dN_pTdpTdphidy_all = (double*)calloc(FO_chunk * pT_tab_length * phi_tab_length * y_tab_length, sizeof(double));
 
-  printf("start filling big array\n");
-  #pragma omp parallel for private(trig_phi_table, yValues, pTValues, mass, sign, degen, baryon, prefactor)//launch different threads for different FO surface elements
-  //this section of code takes majority of time (compared to the reduction ) when using omp with 20 threads
-  #pragma acc kernels
-  #pragma acc loop independent
-  //can we use cuda unified memory here to simplify the passing of freezeout surface info to gpu?
-  //if so, we don't need to worry about handing the GPU one manageable chunk at a time, but let compiler figure it out...
-  //even so, for a large FO surface, the array dN_pTdpTdphidy_all might not fit in the host RAM
-  for (int icell = 0; icell < FO_chunk; icell++)
+  //loop over bite size chunks of FO surface
+  for (int n = 0; n < FO_length / FO_chunk; n++)
   {
+    printf("start filling big array\n");
+    //#pragma omp parallel for private(trig_phi_table, yValues, pTValues, mass, sign, degen, baryon, prefactor)//launch different threads for different FO surface elements
+    //this section of code takes majority of time (compared to the reduction ) when using omp with 20 threads
+    #pragma omp parallel for
+    #pragma acc kernels
+    #pragma acc loop independent
+    //can we use cuda unified memory here to simplify the passing of freezeout surface info to gpu?
+    //if so, we don't need to worry about handing the GPU one manageable chunk at a time, but let compiler figure it out...
+    //even so, for a large FO surface, the array dN_pTdpTdphidy_all might not fit in the host RAM
+    for (int icell = 0; icell < FO_chunk; icell++) //cell index inside each chunk
+    {
+      int icell_glb = n * FO_chunk + icell; //global FO cell index
+      for (int ipT = 0; ipT < pT_tab_length; ipT++)
+      {
+        double pT = pTValues[ipT];
+        double mT = sqrt(mass * mass + pT * pT);
+
+        for (int iphip = 0; iphip < phi_tab_length; iphip++)
+        {
+          double px = pT * trig_phi_table[iphip][0];
+          double py = pT * trig_phi_table[iphip][1];
+
+          for (int iy = 0; iy < y_tab_length; iy++)
+          {
+            double y = yValues[iy];
+
+            double deltaf_prefactor = 0.0;
+
+            if (INCLUDE_DELTAF) deltaf_prefactor = 1.0/(2.0 * Tdec[icell_glb] * Tdec[icell_glb] * (Edec[icell_glb] + Pdec[icell_glb]));
+            //NEED TO MOVE getbulkvisCoefficients OUTSIDE OF ACC ROUTINE SOMEHOW
+            if (INCLUDE_BULKDELTAF == 1)
+            {
+              //FIX THIS - NEED BULK VIS COEFFICIENTS ON GPU
+              getbulkvisCoefficients(Tdec[icell_glb], bulkvisCoefficients);
+            }
+            double ptau = mT * cosh(y - eta[icell_glb]); //contravariant
+            double peta = (-1.0 / tau[icell_glb]) * mT * sinh(y - eta[icell_glb]); //contravariant
+
+            //thermal equilibrium distributions
+            double pdotu = ptau * utau[icell_glb] - px * ux[icell_glb] - py * uy[icell_glb] - (tau[icell_glb] * tau[icell_glb]) * peta * ueta[icell_glb]; //watch factors of tau from metric! is ueta read in as contravariant?
+            double expon = (pdotu - mu[icell_glb] - baryon * muB[icell_glb]) / Tdec[icell_glb];
+            double f0 = 1./(exp(expon) + sign);
+            // Must adjust this to be correct for the p*del \tau term.
+            double pdotdsigma = ptau * datau[icell_glb] + px * dax[icell_glb] + py * day[icell_glb] + peta * daeta[icell_glb]; //are these dax, day etc. the covariant components?
+            //viscous corrections
+            double delta_f_shear = 0.0;
+            if (INCLUDE_DELTAF)
+            {
+              double Wfactor = (ptau * ptau * pi00[icell_glb] - 2.0 * ptau * px * pi01[icell_glb] - 2.0 * ptau * py * pi02[icell_glb] + px * px * pi11[icell_glb] + 2.0 * px * py * pi12[icell_glb] + py * py * pi22[icell_glb] + peta * peta *pi33[icell_glb]);
+              delta_f_shear = ((1 - F0_IS_NOT_SMALL*sign*f0) * Wfactor * deltaf_prefactor);
+            }
+            double delta_f_bulk = 0.0;
+            if (INCLUDE_BULKDELTAF == 1)
+            {
+              if (bulk_deltaf_kind == 0) delta_f_bulk = (- (1. - F0_IS_NOT_SMALL * sign * f0) * bulkPi[icell_glb] * (bulkvisCoefficients[0] * mass * mass + bulkvisCoefficients[1] * pdotu + bulkvisCoefficients[2] * pdotu * pdotu));
+              else if (bulk_deltaf_kind == 1)
+              {
+                double E_over_T = pdotu / Tdec[icell_glb];
+                double mass_over_T = mass / Tdec[icell_glb];
+                delta_f_bulk = (-1.0 * (1. - sign * f0)/E_over_T * bulkvisCoefficients[0] * (mass_over_T * mass_over_T/3. - bulkvisCoefficients[1] * E_over_T * E_over_T) * bulkPi[icell_glb]);
+              }
+              else if (bulk_deltaf_kind == 2)
+              {
+                double E_over_T = pdotu / Tdec[icell_glb];
+                delta_f_bulk = (-1.*(1.-sign * f0) * (-bulkvisCoefficients[0] + bulkvisCoefficients[1] * E_over_T) * bulkPi[icell_glb]);
+              }
+              else if (bulk_deltaf_kind == 3)
+              {
+                double E_over_T = pdotu / Tdec[icell_glb];
+                delta_f_bulk = (-1.0*(1.-sign * f0) / sqrt(E_over_T) * (-bulkvisCoefficients[0] + bulkvisCoefficients[1] * E_over_T) * bulkPi[icell_glb]);
+              }
+              else if (bulk_deltaf_kind == 4)
+              {
+                double E_over_T = pdotu / Tdec[icell_glb];
+                delta_f_bulk = (-1.0*(1.-sign * f0) * (bulkvisCoefficients[0] - bulkvisCoefficients[1] / E_over_T) * bulkPi[icell_glb]);
+              }
+            }
+
+            double ratio = min(1., fabs(1. / (delta_f_shear + delta_f_bulk)));
+            long long int ir = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
+            dN_pTdpTdphidy_all[ir] = (prefactor * degen * pdotdsigma * tau[icell] * f0 * (1. + (delta_f_shear + delta_f_bulk) * ratio));
+          } //iy
+        } //iphip
+      } //ipT
+    } //icell
+    printf("performing reduction over cells\n");
+    //now perform the reduction over cells
+    //this section of code is quite fast compared to filling dN_xxx_all when using multiple threads openmp
+    #pragma omp parallel for collapse(3)
+    #pragma acc kernels
     for (int ipT = 0; ipT < pT_tab_length; ipT++)
     {
-      double pT = pTValues[ipT];
-      double mT = sqrt(mass * mass + pT * pT);
-
       for (int iphip = 0; iphip < phi_tab_length; iphip++)
       {
-        double px = pT * trig_phi_table[iphip][0];
-        double py = pT * trig_phi_table[iphip][1];
-
         for (int iy = 0; iy < y_tab_length; iy++)
         {
-          double y = yValues[iy];
-
-          double deltaf_prefactor = 0.0;
-
-          if (INCLUDE_DELTAF) deltaf_prefactor = 1.0/(2.0 * Tdec[icell] * Tdec[icell] * (Edec[icell] + Pdec[icell]));
-          //NEED TO MOVE getbulkvisCoefficients OUTSIDE OF ACC ROUTINE SOMEHOW
-          if (INCLUDE_BULKDELTAF == 1)
+          long long int is = ipT + (pT_tab_length * iphip) + (pT_tab_length * phi_tab_length * iy);
+          double dN_pTdpTdphidy_3D_tmp = 0.0; //reduction variable
+          #pragma omp simd reduction(+:dN_pTdpTdphidy_3D_tmp)
+          for (int icell = 0; icell < FO_chunk; icell++)
           {
-            //FIX THIS - NEED BULK VIS COEFFICIENTS ON GPU
-            //getbulkvisCoefficients(Tdec[icell], bulkvisCoefficients);
-          }
-          double ptau = mT * cosh(y - eta[icell]); //contravariant
-          double peta = (-1.0 / tau[icell]) * mT * sinh(y - eta[icell]); //contravariant
-
-          //thermal equilibrium distributions
-          double pdotu = ptau * utau[icell] - px * ux[icell] - py * uy[icell] - (tau[icell] * tau[icell]) * peta * ueta[icell]; //watch factors of tau from metric! is ueta read in as contravariant?
-          double expon = (pdotu - mu[icell] - baryon * muB[icell]) / Tdec[icell];
-          double f0 = 1./(exp(expon) + sign);
-          // Must adjust this to be correct for the p*del \tau term.
-          double pdotdsigma = ptau * datau[icell] + px * dax[icell] + py * day[icell] + peta * daeta[icell]; //are these dax, day etc. the covariant components?
-          //viscous corrections
-          double delta_f_shear = 0.0;
-          if (INCLUDE_DELTAF)
-          {
-            double Wfactor = (ptau * ptau * pi00[icell] - 2.0 * ptau * px * pi01[icell] - 2.0 * ptau * py * pi02[icell] + px * px * pi11[icell] + 2.0 * px * py * pi12[icell] + py * py * pi22[icell] + peta * peta *pi33[icell]);
-            delta_f_shear = ((1 - F0_IS_NOT_SMALL*sign*f0) * Wfactor * deltaf_prefactor);
-          }
-          double delta_f_bulk = 0.0;
-          if (INCLUDE_BULKDELTAF == 1)
-          {
-            if (bulk_deltaf_kind == 0) delta_f_bulk = (- (1. - F0_IS_NOT_SMALL * sign * f0) * bulkPi[icell] * (bulkvisCoefficients[0] * mass * mass + bulkvisCoefficients[1] * pdotu + bulkvisCoefficients[2] * pdotu * pdotu));
-            else if (bulk_deltaf_kind == 1)
-            {
-              double E_over_T = pdotu / Tdec[icell];
-              double mass_over_T = mass / Tdec[icell];
-              delta_f_bulk = (-1.0 * (1. - sign * f0)/E_over_T * bulkvisCoefficients[0] * (mass_over_T * mass_over_T/3. - bulkvisCoefficients[1] * E_over_T * E_over_T) * bulkPi[icell]);
-            }
-            else if (bulk_deltaf_kind == 2)
-            {
-              double E_over_T = pdotu / Tdec[icell];
-              delta_f_bulk = (-1.*(1.-sign * f0) * (-bulkvisCoefficients[0] + bulkvisCoefficients[1] * E_over_T) * bulkPi[icell]);
-            }
-            else if (bulk_deltaf_kind == 3)
-            {
-              double E_over_T = pdotu / Tdec[icell];
-              delta_f_bulk = (-1.0*(1.-sign * f0) / sqrt(E_over_T) * (-bulkvisCoefficients[0] + bulkvisCoefficients[1] * E_over_T) * bulkPi[icell]);
-            }
-            else if (bulk_deltaf_kind == 4)
-            {
-              double E_over_T = pdotu / Tdec[icell];
-              delta_f_bulk = (-1.0*(1.-sign * f0) * (bulkvisCoefficients[0] - bulkvisCoefficients[1] / E_over_T) * bulkPi[icell]);
-            }
-          }
-
-          double ratio = min(1., fabs(1. / (delta_f_shear + delta_f_bulk)));
-          long long int ir = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
-          dN_pTdpTdphidy_all[ir] = (prefactor * degen * pdotdsigma * tau[icell] * f0 * (1. + (delta_f_shear + delta_f_bulk) * ratio));
-        } //iy
-      } //iphip
-    } //ipT
-  } //icell
-  printf("performing reduction over cells\n");
-  //now perform the reduction over cells
-  //this section of code is quite fast compared to filling dN_xxx_all when using multiple threads openmp
-  #pragma omp parallel for collapse(3)
-  #pragma acc kernels
-  for (int ipT = 0; ipT < pT_tab_length; ipT++)
-  {
-    for (int iphip = 0; iphip < phi_tab_length; iphip++)
-    {
-      for (int iy = 0; iy < y_tab_length; iy++)
-      {
-        long long int is = ipT + (pT_tab_length * iphip) + (pT_tab_length * phi_tab_length * iy);
-        for (int icell = 0; icell < FO_chunk; icell++)
-        {
-          long long int ir = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
-          dN_pTdpTdphidy_3D[is] += dN_pTdpTdphidy_all[ir];
-        }//icell
-      }//iy
-    }//iphip
-  }//ipT
+            long long int ir = icell + (FO_chunk * ipT) + (FO_chunk * pT_tab_length * iphip) + (FO_chunk * pT_tab_length * phi_tab_length * iy);
+            dN_pTdpTdphidy_3D_tmp += dN_pTdpTdphidy_all[ir];
+          }//icell
+           dN_pTdpTdphidy_3D[is] += dN_pTdpTdphidy_3D_tmp; //cumulative sum over all chunks
+        }//iy
+      }//iphip
+    }//ipT
+  }//n FO chunk
 
   //free memory
   free(dN_pTdpTdphidy_all);
