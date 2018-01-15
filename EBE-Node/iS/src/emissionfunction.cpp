@@ -269,6 +269,8 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   for (int n = 0; n < FO_length / FO_chunk + 1; n++)
   {
     printf("start filling big array\n");
+    int end = FO_chunk;
+    if (n == (FO_length / FO_chunk)) end = FO_length - (n * FO_chunk); //don't go out of array bounds 
     //#pragma omp parallel for private(trig_phi_table, yValues, pTValues, mass, sign, degen, baryon, prefactor)//launch different threads for different FO surface elements
     //this section of code takes majority of time (compared to the reduction ) when using omp with 20 threads
     #pragma omp parallel for
@@ -277,8 +279,6 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
     //can we use cuda unified memory here to simplify the passing of freezeout surface info to gpu?
     //if so, we don't need to worry about handing the GPU one manageable chunk at a time, but let compiler figure it out...
     //even so, for a large FO surface, the array dN_pTdpTdphidy_all might not fit in the host RAM
-    int end = FO_chunk;
-    if (n == (FO_length / FO_chunk)) end = FO_length - (n * FO_chunk); //don't go out of array bounds 
     for (int icell = 0; icell < FO_chunk; icell++) //cell index inside each chunk
     {
       int icell_glb = n * FO_chunk + icell; //global FO cell index
