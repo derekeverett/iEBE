@@ -139,7 +139,6 @@ EmissionFunctionArray::~EmissionFunctionArray()
 void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx)
 {
   last_particle_idx = particle_idx;
-  //double sec = omp_get_wtime();
   particle_info* particle;
   particle = &particles[particle_idx];
 
@@ -158,22 +157,6 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   if (bulk_deltaf_kind == 0) bulkvisCoefficients = new double [3];
   else bulkvisCoefficients = new double [2];
 
-  /*
-  //declare an array to hold the final spectra
-  double dN_pTdpTdphidy_tab[pT_tab_length][phi_tab_length][y_tab_length];
-  //initialize to zero
-  #pragma omp parallel for collapse(3)
-  for (int ipT = 0; ipT < pT_tab_length; ipT++)
-  {
-    for (int iphip = 0; iphip < phi_tab_length; iphip++)
-    {
-      for (int iy = 0; iy < y_tab_length; iy++)
-      {
-        dN_pTdpTdphidy_tab[ipT][iphip][iy] = 0.0;
-      }
-    }
-  }
-  */
   double trig_phi_table[phi_tab_length][2]; // 2: 0,1-> cos,sin
   for (int j = 0; j < phi_tab_length; j++)
   {
@@ -195,7 +178,6 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
     yValues[iy] = y_tab->get(1, iy + 1);
   }
 
-  //sec = omp_get_wtime() - sec;
   //now fill arrays with surface info
   double *Tdec, *Pdec, *Edec, *mu, *tau, *eta, *utau, *ux, *uy, *ueta;
   double *datau, *dax, *day, *daeta, *pi00, *pi01, *pi02, *pi11, *pi12, *pi22, *pi33;
@@ -258,7 +240,6 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
     muB[icell] = surf->muB;
     bulkPi[icell] = surf->bulkPi;
   }
-  //sec = omp_get_wtime() - sec;
 
   //declare a huge array of size FO_chunk * pT_tab_length * phi_tab_length * y_tab_length
   //to hold the spectra for each surface cell in a chunk
@@ -270,15 +251,11 @@ void EmissionFunctionArray::calculate_dN_ptdptdphidy_parallel_3(int particle_idx
   {
     printf("start filling big array\n");
     int end = FO_chunk;
-    if (n == (FO_length / FO_chunk)) end = FO_length - (n * FO_chunk); //don't go out of array bounds 
-    //#pragma omp parallel for private(trig_phi_table, yValues, pTValues, mass, sign, degen, baryon, prefactor)//launch different threads for different FO surface elements
+    if (n == (FO_length / FO_chunk)) end = FO_length - (n * FO_chunk); //don't go out of array bounds
     //this section of code takes majority of time (compared to the reduction ) when using omp with 20 threads
     #pragma omp parallel for
     #pragma acc kernels
     #pragma acc loop independent
-    //can we use cuda unified memory here to simplify the passing of freezeout surface info to gpu?
-    //if so, we don't need to worry about handing the GPU one manageable chunk at a time, but let compiler figure it out...
-    //even so, for a large FO surface, the array dN_pTdpTdphidy_all might not fit in the host RAM
     for (int icell = 0; icell < FO_chunk; icell++) //cell index inside each chunk
     {
       int icell_glb = n * FO_chunk + icell; //global FO cell index
